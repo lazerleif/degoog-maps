@@ -1,0 +1,14 @@
+{
+  "name": "degoog-maps",
+  "description": "Repo of maps plugin for degoog",
+  "author": "lazerleif",
+  "plugins": [
+    {
+      "path": "plugins/maps",
+      "name": "Maps",
+      "description": "A maps tab for degoog",
+      "version": "1.0.0",
+      "type": "search-result-tab"
+    }
+  ],
+}
