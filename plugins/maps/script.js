@@ -33,15 +33,26 @@
     document.body.classList.remove("maps-tab-active");
   }
 
+  // ── XSS escape ─────────────────────────────────────────────────────────────
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   // ── State ───────────────────────────────────────────────────────────────────
 
-  let mapInstance = null;
+  let mapInstance      = null;
   let lastRenderedQuery = null;
+  let activeRequest    = null;
+  const queryCache     = new Map();
 
   function destroyMap() {
     if (mapInstance) { mapInstance.remove(); mapInstance = null; }
     const existing = document.getElementById("maps-plugin-container");
     if (existing) existing.remove();
+    if (activeRequest) { activeRequest.abort(); activeRequest = null; }
     lastRenderedQuery = null;
     showSidebar();
   }
@@ -62,7 +73,8 @@
     return (
       document.getElementById("results-list") ||
       document.querySelector(".results-main") ||
-      document.querySelector(".results-page")
+      document.querySelector(".results-page") ||
+      document.querySelector("main")
     );
   }
 
@@ -99,6 +111,9 @@
     lastRenderedQuery = query;
     hideSidebar();
 
+    // Abort any in-flight request for a previous query
+    if (activeRequest) { activeRequest.abort(); activeRequest = null; }
+
     // Clean up previous map
     const existing = document.getElementById("maps-plugin-container");
     if (existing) existing.remove();
@@ -115,30 +130,55 @@
     mapEl.id = "maps-plugin-map";
     mapEl.style.height = "420px";
     mapEl.style.width  = "100%";
+
+    // Loading state
+    mapEl.innerHTML = '<p class="maps-loading">Loading map…</p>';
     container.appendChild(mapEl);
 
     anchor.parentNode.insertBefore(container, anchor);
 
-    // Load Leaflet
-    await loadLeaflet();
-    const L = window.L;
+    // Load Leaflet in parallel with the API fetch
+    const leafletReady = loadLeaflet();
 
-    // Fetch places via server-side proxy
-    let places = [];
-    try {
-      const res = await fetch(
-        `/api/plugin/maps/search?q=${encodeURIComponent(query)}&limit=15`
-      );
-      places = await res.json();
-    } catch (e) {
-      mapEl.innerHTML = '<p class="maps-no-results">Could not load map data.</p>';
-      return;
+    // Fetch places — use cache if available
+    let places = queryCache.get(query) || null;
+
+    if (!places) {
+      try {
+        activeRequest = new AbortController();
+        const res = await fetch(
+          `/api/plugin/maps/search?q=${encodeURIComponent(query)}&limit=15`,
+          { signal: activeRequest.signal }
+        );
+        activeRequest = null;
+
+        if (!res.ok) throw new Error(`API error ${res.status}`);
+        places = await res.json();
+
+        // Store in cache (cap at 30 entries)
+        if (queryCache.size >= 30) {
+          queryCache.delete(queryCache.keys().next().value);
+        }
+        queryCache.set(query, places);
+
+      } catch (err) {
+        if (err.name === "AbortError") return; // user navigated away
+        mapEl.innerHTML = '<p class="maps-no-results">Could not load map data.</p>';
+        return;
+      }
     }
 
     if (!Array.isArray(places) || !places.length) {
       mapEl.innerHTML = '<p class="maps-no-results">No places found.</p>';
       return;
     }
+
+    // Wait for Leaflet before rendering
+    await leafletReady;
+    const L = window.L;
+
+    // Clear loading message
+    mapEl.innerHTML = "";
 
     const map = L.map("maps-plugin-map", { scrollWheelZoom: true });
     mapInstance = map;
@@ -158,8 +198,8 @@
 
       bounds.push([lat, lon]);
 
-      const name   = place.display_name.split(", ").slice(0, 2).join(", ");
-      const osmUrl = `https://www.openstreetmap.org/${place.osm_type}/${place.osm_id}`;
+      const name   = escapeHtml(place.display_name.split(", ").slice(0, 2).join(", "));
+      const osmUrl = `https://www.openstreetmap.org/${encodeURIComponent(place.osm_type)}/${encodeURIComponent(place.osm_id)}`;
 
       L.marker([lat, lon])
         .addTo(map)
@@ -202,6 +242,7 @@
   };
   window.addEventListener("popstate", () => setTimeout(check, 150));
 
+  // Resize handler
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -216,11 +257,16 @@
     }, 150);
   });
 
+  // MutationObserver — throttled to avoid CPU spam
+  let mutationTimer = null;
   const observer = new MutationObserver(() => {
-    if (!isMapsTab()) return;
-    if (containerInDOM()) return;
-    const q = getParam("q");
-    if (q) { lastRenderedQuery = null; renderMap(q); }
+    clearTimeout(mutationTimer);
+    mutationTimer = setTimeout(() => {
+      if (!isMapsTab()) return;
+      if (containerInDOM()) return;
+      const q = getParam("q");
+      if (q) { lastRenderedQuery = null; renderMap(q); }
+    }, 200);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
