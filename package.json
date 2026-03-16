@@ -7,7 +7,7 @@
     {
       "path": "plugins/maps",
       "name": "Maps",
-      "description": "A maps tab for degoog",
+      "description": "Search for places and show an interactive OpenStreetMap above the results.",
       "version": "1.0.0",
       "type": "search-result-tab"
     }
