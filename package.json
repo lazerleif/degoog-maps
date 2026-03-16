@@ -1,6 +1,7 @@
 {
   "name": "degoog-maps",
   "description": "Repo of maps plugin for degoog",
+  "repo-image": "https://avatars.githubusercontent.com/u/37516628?s=512",
   "author": "lazerleif",
   "plugins": [
     {
