@@ -55,7 +55,7 @@
   function isMapsTab() {
     const type = getParam("type");
     const tab  = getParam("tab");
-    return type === "tab:maps" || tab === "maps" || type.includes("maps");
+    return type === "tab:maps" || tab === "maps";
   }
 
   function findInsertionPoint() {
