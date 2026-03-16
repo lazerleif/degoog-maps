@@ -60,3 +60,9 @@ body.maps-tab-active .results-main {
   color: var(--text-secondary);
   text-align: center;
 }
+
+@media (max-width: 600px) {
+  #maps-plugin-map {
+    height: 260px !important;
+  }
+}
